@@ -98,8 +98,9 @@ def obtener_horario_alumno(id_alumno):
         query_materias = """
         SELECT 
             asig.id_asignatura,
+            asig.clave,
             asig.nombre,
-            g.clave,
+            g.id_grupo,
             ag.id_asignatura_grupo,
             CONCAT(p.nombre, ' ', p.paterno) AS profesor
         FROM 
@@ -197,8 +198,9 @@ def obtener_materias_inscritas(id_alumno):
         SELECT 
             i.id_inscripcion,
             asig.id_asignatura,
+            asig.clave,
             asig.nombre,
-            g.clave,
+            g.id_grupo,
             CONCAT(p.nombre, ' ', p.paterno) AS profesor
         FROM 
             inscripciones i
@@ -228,41 +230,47 @@ def obtener_materias_disponibles(id_alumno, semestre):
     conn = get_db_connection()
     if not conn:
         return []
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
         query = """
         SELECT 
             ag.id_asignatura_grupo,
             asig.id_asignatura,
+            asig.clave,
             asig.nombre,
-            g.clave,
+            g.id_grupo,
             CONCAT(p.nombre, ' ', p.paterno) AS profesor,
             g.cupo
-        FROM 
-            asignatura_grupo ag
-        JOIN 
-            asignatura asig ON ag.id_asignatura = asig.id_asignatura
-        JOIN 
-            grupo g ON ag.id_grupo = g.id_grupo
-        JOIN 
-            profesor p ON ag.id_profesor = p.id_prof
+        FROM asignatura_grupo ag
+        JOIN asignatura      asig ON ag.id_asignatura = asig.id_asignatura
+        JOIN grupo           g    ON ag.id_grupo = g.id_grupo
+        JOIN profesor        p    ON ag.id_profesor = p.id_prof
+        -- unimos las inscripciones que ya tenga este alumno, por asignatura
+        LEFT JOIN (
+            SELECT DISTINCT ag2.id_asignatura
+            FROM inscripciones i2
+            JOIN asignatura_grupo ag2 
+              ON i2.id_asignatura_grupo = ag2.id_asignatura_grupo
+            WHERE i2.id_alumno = %s
+        ) AS ins
+          ON ag.id_asignatura = ins.id_asignatura
         WHERE 
             asig.semestre = %s
-            AND ag.id_asignatura_grupo NOT IN (
-                SELECT id_asignatura_grupo FROM inscripciones WHERE id_alumno = %s
-            )
+            AND ins.id_asignatura IS NULL    -- aquí filtramos las que ya tiene
         ORDER BY 
-            asig.nombre, g.clave
+            asig.nombre, g.id_grupo
         """
-        cursor.execute(query, (semestre, id_alumno))
+        cursor.execute(query, (id_alumno, semestre))
         return cursor.fetchall()
+
     except Error as e:
-        print(f"Error: {e}")
+        print(f"Error en obtener_materias_disponibles: {e}")
         return []
     finally:
         cursor.close()
         conn.close()
+
 
 @app.route('/inscribir', methods=['POST'])
 def inscribir():
@@ -280,6 +288,23 @@ def inscribir():
     
     try:
         cursor = conn.cursor(dictionary=True)
+
+        # 1) Verificar que no esté inscrito ya en la misma asignatura (cualquier grupo)
+        query_misma_asignatura = """
+        SELECT COUNT(*) AS total
+        FROM inscripciones i
+        JOIN asignatura_grupo ag1 ON i.id_asignatura_grupo = ag1.id_asignatura_grupo
+        WHERE i.id_alumno = %s
+          AND ag1.id_asignatura = (
+              SELECT ag2.id_asignatura
+              FROM asignatura_grupo ag2
+              WHERE ag2.id_asignatura_grupo = %s
+          )
+        """
+        cursor.execute(query_misma_asignatura, (id_alumno, id_asignatura_grupo))
+        if cursor.fetchone()['total'] > 0:
+            flash('Ya estás inscrito en esa asignatura', 'warning')
+            return redirect(url_for('inscripciones'))
         
         # Verificar el cupo disponible
         query_cupo = """
@@ -299,8 +324,8 @@ def inscribir():
         cursor.execute(query_count, (id_alumno,))
         resultado = cursor.fetchone()
         
-        if resultado['total'] >= 5:
-            flash('Ya tienes el máximo de 5 materias inscritas', 'warning')
+        if resultado['total'] >= 6:
+            flash('Ya tienes el máximo de 6 materias inscritas', 'warning')
             return redirect(url_for('inscripciones'))
         
         # Verificar traslapes de horario
@@ -408,10 +433,11 @@ def obtener_horarios_por_semestre(semestre):
         # Consulta para obtener todas las asignaturas con su información completa
         query = """
         SELECT 
-            asig.id_asignatura AS clave,
+            asig.id_asignatura,
+            asig.clave,
             asig.nombre AS materia,
             CONCAT(p.nombre, ' ', p.paterno) AS profesor,
-            g.clave AS grupo,
+            g.id_grupo,
             g.cupo,
             ag.id_asignatura_grupo
         FROM 
@@ -425,7 +451,7 @@ def obtener_horarios_por_semestre(semestre):
         WHERE 
             asig.semestre = %s
         ORDER BY 
-            asig.nombre, g.clave
+            asig.nombre, g.id_grupo
         """
         cursor.execute(query, (semestre,))
         materias = cursor.fetchall()

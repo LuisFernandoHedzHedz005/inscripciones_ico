@@ -66,9 +66,9 @@
                                 {% if materias_inscritas %}
                                     {% for materia in materias_inscritas %}
                                     <tr>
-                                        <td>{{ materia.id_asignatura }}</td>
-                                        <td>{{ materia.nombre }}</td>
                                         <td>{{ materia.clave }}</td>
+                                        <td>{{ materia.nombre }}</td>
+                                        <td>{{ materia.id_grupo }}</td>
                                         <td>{{ materia.profesor }}</td>
                                         <td>
                                             <form action="{{ url_for('dar_baja') }}" method="POST">
@@ -113,9 +113,9 @@
                                 {% if materias_disponibles %}
                                     {% for materia in materias_disponibles %}
                                     <tr>
-                                        <td>{{ materia.id_asignatura }}</td>
-                                        <td>{{ materia.nombre }}</td>
                                         <td>{{ materia.clave }}</td>
+                                        <td>{{ materia.nombre }}</td>
+                                        <td>{{ materia.id_grupo }}</td>
                                         <td>{{ materia.profesor }}</td>
                                         <td>{{ materia.cupo }}</td>
                                         <td>
